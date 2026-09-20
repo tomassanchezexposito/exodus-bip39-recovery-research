@@ -45,4 +45,8 @@ First reproducible research version of **Exodus BIP-39 Recovery Research**.
 
 ### Archival status
 
-This version is being prepared as the first archival research release. A Zenodo DOI will be added to the repository metadata after the corresponding archival deposit is created.
+Version **0.1.0** was archived and published through **Zenodo** on 2026-09-20.
+
+**DOI:** [10.5281/zenodo.22858136](https://doi.org/10.5281/zenodo.22858136)
+
+The archived `v0.1.0` release is preserved as the historical first research release. Subsequent changes on the `main` branch belong to later development and do not rewrite the archived release.
