@@ -1,16 +1,32 @@
 # Tests
 
-Real wallet files must never be used as committed test fixtures.
+This directory contains public reproducibility tests for the recovery tool.
 
-Planned automated tests should use only public or synthetic material and cover:
+The tests deliberately use only synthetic data and public BIP-39/BIP-32 test
+vectors. They do not contain or require a real Exodus backup, mnemonic,
+passphrase, private key, wallet address, or transaction history.
 
-1. SECO header parsing and checksum verification;
-2. scrypt parameter handling;
-3. AES-256-GCM decryption of a synthetic fixture;
-4. gzip/seed-payload unpacking;
-5. BIP-39 entropy → mnemonic → seed consistency;
-6. BIP-32/BIP-44 Ethereum derivation against public test vectors;
-7. rejection when the derived address does not equal the target;
-8. detection of malformed/truncated containers.
+## Run
 
-A fully synthetic SECO fixture should be generated during tests rather than committed with anything derived from a real wallet.
+From the repository root:
+
+```bash
+python -m pip install -r requirements.txt
+python -m pytest
+```
+
+The suite checks:
+
+- Ethereum address input validation;
+- BIP-39 entropy-to-mnemonic conversion against a public vector;
+- BIP-39 seed reconstruction;
+- BIP-32 master-key derivation against the official test vector;
+- `passphrase.json` parsing;
+- defensive rejection of malformed SECO input;
+- CSV Ethereum-address extraction;
+- pairing of `seed.seco` and `passphrase.json` in folders and ZIP archives;
+- deterministic Ethereum derivation for a public BIP-39 vector.
+
+A real Exodus encrypted backup is intentionally not committed as a fixture.
+End-to-end SECO decryption with a real wallet remains a local/private validation
+step and must not be uploaded to the public repository.
