@@ -151,11 +151,13 @@ is treated as a change of representation, **not as additional cryptographic entr
 ├── examples/
 │   └── README.md
 ├── .gitignore
+├── CHANGELOG.md
 ├── CITATION.cff
 ├── LICENSE
 ├── README.md
 ├── README_ES.md
 ├── SECURITY.md
+├── pytest.ini
 ├── requirements.txt
 └── run_windows.bat
 ```
@@ -179,11 +181,23 @@ is treated as a change of representation, **not as additional cryptographic entr
 
 ## Publication and archival
 
-GitHub is used for the public source repository and development history. Versioned archival/publication packages and DOI management are planned through **Zenodo**. The repository intentionally does not create a GitHub Release as part of the initial publication workflow.
+GitHub is used for the public source repository and development history.
+
+Version **v0.1.0** has been permanently archived through **Zenodo**:
+
+**DOI:** [10.5281/zenodo.22858136](https://doi.org/10.5281/zenodo.22858136)
+
+Future archived versions will be published as new versioned releases without rewriting the historical `v0.1.0` tag.
 
 ## Citation
 
-Citation metadata is provided in [`CITATION.cff`](CITATION.cff). The Zenodo DOI will be added after the first archival deposit.
+Citation metadata is provided in [`CITATION.cff`](CITATION.cff).
+
+Recommended citation:
+
+> Sánchez Expósito, T. (2026). *Exodus BIP-39 Recovery Research* (Version 0.1.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.22858136
+
+ORCID: [0009-0006-3715-8516](https://orcid.org/0009-0006-3715-8516)
 
 ## License
 
