@@ -57,6 +57,28 @@ Ejecuta siempre la recuperación localmente en un ordenador de confianza.
 3. Descarga/clona el repositorio.
 4. Ejecuta `run_windows.bat`.
 
-## Publicación
+## Publicación y archivado
 
-GitHub se utilizará como repositorio público de código y desarrollo. El archivado versionado y los DOI se gestionarán mediante **Zenodo**.
+GitHub se utiliza como repositorio público de código y desarrollo.
+
+La versión **v0.1.0** ha sido archivada permanentemente mediante **Zenodo**:
+
+**DOI:** [10.5281/zenodo.22858136](https://doi.org/10.5281/zenodo.22858136)
+
+Las futuras versiones archivadas se publicarán como nuevas versiones, sin reescribir la etiqueta histórica `v0.1.0`.
+
+## Citación
+
+Los metadatos de citación se encuentran en [`CITATION.cff`](CITATION.cff).
+
+Cita recomendada:
+
+> Sánchez Expósito, T. (2026). *Exodus BIP-39 Recovery Research* (Versión 0.1.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.22858136
+
+ORCID: [0009-0006-3715-8516](https://orcid.org/0009-0006-3715-8516)
+
+## Licencia
+
+Este proyecto se distribuye bajo la **Apache License 2.0**. Consulta [`LICENSE`](LICENSE) para ver el texto completo de la licencia.
+
+Copyright © 2026 Tomás Sánchez Expósito.
