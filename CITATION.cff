@@ -9,22 +9,22 @@ authors:
     orcid: "https://orcid.org/0009-0006-3715-8516"
 
 type: software
-version: 0.1.0
+version: 0.2.0
 date-released: 2026-09-20
 
 repository-code: "https://github.com/tomassanchezexposito/exodus-bip39-recovery-research"
-doi: "10.5281/zenodo.22858136"
 
 license: Apache-2.0
 
 abstract: >-
   Reproducible research and local software for authorized recovery
-  and verification of Exodus BIP-39 wallets. The project examines
-  local encrypted wallet backups, BIP-39 mnemonic reconstruction,
-  BIP-32/BIP-44 hierarchical deterministic derivation, Ethereum
-  address verification, EIP-7702 transaction data, and the distinction
-  between deterministic representations and genuine reductions of
-  cryptographic entropy.
+  and verification of Exodus BIP-39 wallets. Version 0.2.0 adds
+  24-word BIP-39 support, configurable Ethereum derivation paths,
+  parallel backup processing, derivation caching, progress reporting,
+  encrypted local result export, and explicit scrypt memory handling
+  for compatibility with memory-intensive Exodus secure containers.
+  Public blockchain data is treated primarily as verification evidence,
+  not as mnemonic entropy.
 
 keywords:
   - BIP-39
@@ -35,6 +35,5 @@ keywords:
   - Exodus
   - wallet recovery
   - hierarchical deterministic wallets
-  - EIP-7702
   - cryptography
   - cryptocurrency
