@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build / test
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# CRITICAL: wallet secrets / Exodus private data
+**/seed.seco
+**/storage.seco
+**/passphrase.json
+**/unsafe-storage.json
+**/exodus.wallet/**
+**/backups/wallet/**
+*PRIVATE*.zip
+exodus.zip
+*.wallet
+*.seco
+
+# Private-key / mnemonic exports
+*private*key*
+*clave*privada*
+*mnemonic*
+*seed*phrase*
+*recovery*phrase*
+
+# Real user exports / datasets
+*.csv
+*.xlsx
+*.xls
+contexto_maestro*.json
+
+# Local logs/results
+recovery_results*
+*.log
