@@ -65,7 +65,9 @@ python -m pytest -v
 
 ### Archival status
 
-Version **0.2.0** is being prepared for archival through Zenodo. Its version-specific DOI will be added after the corresponding Zenodo deposit is created.
+Version **0.2.0** was archived and published through **Zenodo** on 2026-09-20.
+
+**DOI:** [10.5281/zenodo.22861160](https://doi.org/10.5281/zenodo.22861160)
 
 The historical `v0.1.0` release remains archived at DOI [10.5281/zenodo.22858136](https://doi.org/10.5281/zenodo.22858136).
 

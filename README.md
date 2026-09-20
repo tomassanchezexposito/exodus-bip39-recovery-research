@@ -255,7 +255,9 @@ Version **v0.1.0** is permanently archived through Zenodo:
 
 **v0.1.0 DOI:** [10.5281/zenodo.22858136](https://doi.org/10.5281/zenodo.22858136)
 
-Version **v0.2.0** is being prepared as the next archived release. Its version-specific DOI will be added after Zenodo creates the new deposit.
+Version **v0.2.0** has been permanently archived through Zenodo:
+
+**v0.2.0 DOI:** [10.5281/zenodo.22861160](https://doi.org/10.5281/zenodo.22861160)
 
 Historical release tags are not rewritten.
 
@@ -263,9 +265,9 @@ Historical release tags are not rewritten.
 
 Citation metadata is provided in [`CITATION.cff`](CITATION.cff).
 
-Until the v0.2.0 Zenodo DOI is assigned, the existing archived v0.1.0 record remains:
+Recommended citation for the current archived release:
 
-> Sánchez Expósito, T. (2026). *Exodus BIP-39 Recovery Research* (Version 0.1.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.22858136
+> Sánchez Expósito, T. (2026). *Exodus BIP-39 Recovery Research* (Version 0.2.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.22861160
 
 ORCID: [0009-0006-3715-8516](https://orcid.org/0009-0006-3715-8516)
 

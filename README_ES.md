@@ -134,7 +134,9 @@ La versión **v0.1.0** está archivada permanentemente mediante Zenodo:
 
 **DOI v0.1.0:** [10.5281/zenodo.22858136](https://doi.org/10.5281/zenodo.22858136)
 
-La versión **v0.2.0** se está preparando como la siguiente versión archivada. Su DOI específico se añadirá cuando Zenodo cree el nuevo depósito.
+La versión **v0.2.0** ha sido archivada permanentemente mediante Zenodo:
+
+**DOI v0.2.0:** [10.5281/zenodo.22861160](https://doi.org/10.5281/zenodo.22861160)
 
 Las etiquetas históricas no se reescriben.
 
@@ -142,9 +144,9 @@ Las etiquetas históricas no se reescriben.
 
 Los metadatos se encuentran en [`CITATION.cff`](CITATION.cff).
 
-Hasta que Zenodo asigne el DOI específico de v0.2.0, la versión archivada existente es:
+Cita recomendada para la versión archivada actual:
 
-> Sánchez Expósito, T. (2026). *Exodus BIP-39 Recovery Research* (Versión 0.1.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.22858136
+> Sánchez Expósito, T. (2026). *Exodus BIP-39 Recovery Research* (Versión 0.2.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.22861160
 
 ORCID: [0009-0006-3715-8516](https://orcid.org/0009-0006-3715-8516)
 
