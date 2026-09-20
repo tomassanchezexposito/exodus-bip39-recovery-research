@@ -4,8 +4,8 @@ A reproducible, local-first research tool for **authorized recovery and verifica
 
 The project studies a precise distinction that is easy to blur in wallet recovery:
 
-- **local encrypted wallet backups can contain causal secret material** from which a mnemonic may be recovered; while
-- **public blockchain data (addresses, transaction hashes, signatures, token transfers) is usually best used to verify candidates**, not to invert BIP-39.
+- **local encrypted wallet backups** can contain causal secret material from which a mnemonic may be recovered; while
+- **public blockchain data** (addresses, transaction hashes, signatures, token transfers) is usually best used to verify candidates, not to invert BIP-39.
 
 The current implementation focuses on Exodus Desktop backup material and Ethereum verification.
 
@@ -17,10 +17,10 @@ The research separates:
 
 1. BIP-39 entropy, mnemonic and seed construction;
 2. BIP-32/BIP-44 HD derivation;
-3. Exodus encrypted `SECO` containers;
+3. Exodus encrypted `seco` containers;
 4. Ethereum key/address verification;
 5. public transaction/signature analysis;
-6. experimental prime/index/coordinate representations, which are **not treated as entropy unless an independent reduction can be demonstrated**.
+6. experimental prime/index/coordinate representations, which are not treated as entropy unless an independent reduction can be demonstrated.
 
 ## Main result implemented here
 
@@ -36,7 +36,7 @@ and a known public Ethereum address, the application:
 ```text
 Exodus backup
    ↓
-SECO parsing and integrity check
+seco parsing and integrity check
    ↓
 scrypt key derivation
    ↓
@@ -61,7 +61,7 @@ compare with the operator-supplied public address
 
 The mnemonic is displayed only after the derived Ethereum address matches the target supplied by the operator.
 
-## What this repository deliberately does **not** contain
+## What this repository deliberately does not contain
 
 No real recovery phrase, private key, Exodus `seed.seco`, `passphrase.json`, wallet ZIP, or real user transaction dataset is committed to this repository.
 
@@ -76,7 +76,7 @@ No real recovery phrase, private key, Exodus `seed.seco`, `passphrase.json`, wal
 3. Clone or download this repository.
 4. Run:
 
-```bat
+```text
 run_windows.bat
 ```
 
@@ -87,11 +87,7 @@ python -m pip install -r requirements.txt
 python src/exodus_recovery_tool.py
 ```
 
-Dependencies:
-
-- `cryptography`
-- `mnemonic`
-- `pycryptodome`
+Dependencies are listed in `requirements.txt`.
 
 ## Input data
 
@@ -100,13 +96,13 @@ The application needs only:
 1. an authorized Exodus ZIP/folder containing compatible wallet backups;
 2. a public Ethereum address used as the verification target.
 
-Optionally, an Exodus/Etherscan CSV can be used only to detect candidate public Ethereum addresses.
+Optionally, an Exodus/Etherscan CSV can be used to detect candidate public Ethereum addresses.
 
 It does **not** require:
 
 - private keys;
 - Etherscan API keys;
-- ECDSA `r`, `s`, `v` / `yParity`;
+- ECDSA `(r, s, v/yParity)`;
 - EIP-7702 authorization nonces;
 - token balances or transfer amounts.
 
@@ -136,7 +132,7 @@ The broader research uses these labels:
 In particular, the deterministic mapping
 
 ```text
-BIP-39 index ↔ local position ↔ odd-prime ordinal ↔ odd prime
+BIP-39 index → local position → odd-prime ordinal → odd prime
 ```
 
 is treated as a change of representation, **not as additional cryptographic entropy**.
@@ -155,9 +151,11 @@ is treated as a change of representation, **not as additional cryptographic entr
 ├── examples/
 │   └── README.md
 ├── .gitignore
-├── SECURITY.md
+├── CITATION.cff
+├── LICENSE
 ├── README.md
 ├── README_ES.md
+├── SECURITY.md
 ├── requirements.txt
 └── run_windows.bat
 ```
@@ -174,7 +172,7 @@ is treated as a change of representation, **not as additional cryptographic entr
   https://eips.ethereum.org/EIPS/eip-20
 - EIP-7702 — Set Code for EOAs  
   https://eips.ethereum.org/EIPS/eip-7702
-- Exodus secure-container  
+- Exodus secure-container implementation  
   https://github.com/ExodusMovement/secure-container
 - ExodusOSS bitcoin-seed  
   https://github.com/ExodusOSS/bitcoin-seed
@@ -183,6 +181,12 @@ is treated as a change of representation, **not as additional cryptographic entr
 
 GitHub is used for the public source repository and development history. Versioned archival/publication packages and DOI management are planned through **Zenodo**. The repository intentionally does not create a GitHub Release as part of the initial publication workflow.
 
+## Citation
+
+Citation metadata is provided in [`CITATION.cff`](CITATION.cff). The Zenodo DOI will be added after the first archival deposit.
+
 ## License
 
-A license has **not yet been selected**. Until a license is added, normal copyright rules apply. A license will be chosen before the first archival publication in Zenodo.
+This project is licensed under the **Apache License 2.0**. See [`LICENSE`](LICENSE) for the full license text.
+
+Copyright © 2026 Tomás Sánchez Expósito.
