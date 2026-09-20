@@ -1,5 +1,9 @@
 # Exodus BIP-39 Recovery Research
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22858136.svg)](https://doi.org/10.5281/zenodo.22858136)
+[![Release](https://img.shields.io/badge/release-v0.1.0-blue.svg)](https://github.com/tomassanchezexposito/exodus-bip39-recovery-research/releases/tag/v0.1.0)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 A reproducible, local-first research tool for **authorized recovery and verification of Exodus BIP-39 wallets**.
 
 The project studies a precise distinction that is easy to blur in wallet recovery:
