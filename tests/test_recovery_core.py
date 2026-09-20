@@ -193,3 +193,104 @@ def test_ethereum_derivation_is_deterministic_for_public_bip39_vector():
     assert addr1 == addr2
     assert recovery.normalize_eth_address(addr1) == addr1
     assert len(addr1) == 42
+
+
+def test_entropy_256_produces_24_word_bip39_mnemonic():
+    mnemonic = recovery.entropy_to_mnemonic(bytes(32))
+    assert len(mnemonic.split()) == 24
+    assert Mnemonic("english").check(mnemonic)
+
+
+def test_parse_bip32_path_default_eth_path():
+    path = recovery.parse_bip32_path("m/44'/60'/0'/0/0")
+    assert path == [
+        44 | recovery.HARDENED,
+        60 | recovery.HARDENED,
+        0 | recovery.HARDENED,
+        0,
+        0,
+    ]
+
+
+def test_build_eth_paths_supports_multiple_accounts_indices_and_custom():
+    paths = recovery.build_eth_paths(
+        account_max=1,
+        address_index_max=1,
+        custom_paths="m/44'/60'/5'/0/7",
+    )
+    assert "m/44'/60'/0'/0/0" in paths
+    assert "m/44'/60'/1'/0/1" in paths
+    assert "m/44'/60'/5'/0/7" in paths
+    assert len(paths) == 5
+
+
+def test_derive_eth_path_matches_legacy_default_helper():
+    seed = Mnemonic.to_seed(MNEMONIC_128, passphrase="")
+    priv_a, addr_a = recovery.derive_eth_exodus(seed)
+    priv_b, addr_b = recovery.derive_eth_path(seed, recovery.DEFAULT_ETH_PATH)
+    assert priv_a == priv_b
+    assert addr_a == addr_b
+
+
+def test_csv_optional_early_exit_limits_unique_addresses(tmp_path):
+    csv_path = tmp_path / "many.csv"
+    a = "0x" + ("11" * 20)
+    b = "0x" + ("22" * 20)
+    c = "0x" + ("33" * 20)
+    csv_path.write_text(f"{a}\n{b}\n{c}\n", encoding="utf-8")
+    counts = recovery.extract_eth_addresses_from_csv(str(csv_path), max_unique=2)
+    assert len(counts) == 2
+    assert a in counts
+    assert b in counts
+    assert c not in counts
+
+
+def test_encrypted_export_roundtrip():
+    payload = {
+        "target_address": ETH_RE,
+        "verified_results": [
+            {
+                "mnemonic": MNEMONIC_128,
+                "words": 12,
+                "matching_paths": [recovery.DEFAULT_ETH_PATH],
+                "backups": ["synthetic/seed.seco"],
+            }
+        ],
+    }
+    envelope = recovery.encrypt_export_payload(payload, "synthetic-password-123")
+    recovered = recovery.decrypt_export_payload(envelope, "synthetic-password-123")
+    assert recovered == payload
+
+
+def test_scrypt_explicit_maxmem_avoids_openssl_32mib_default_limit():
+    """Regression: N=2**15,r=8 fails on many OpenSSL builds if maxmem is omitted."""
+    key = recovery.scrypt_derive(
+        b"synthetic-password",
+        salt=b"\x11" * 32,
+        n=2**15,
+        r=8,
+        p=1,
+        dklen=32,
+    )
+    assert isinstance(key, bytes)
+    assert len(key) == 32
+    assert recovery.scrypt_maxmem_for_params(2**15, 8, 1) >= 64 * 1024 * 1024
+
+
+def test_scrypt_maxmem_supports_exodus_n_2_20_r8_within_configured_limit():
+    """No ejecuta el KDF de 1 GiB; verifica que el cálculo permite ese parámetro."""
+    maxmem = recovery.scrypt_maxmem_for_params(2**20, 8, 1)
+    assert maxmem > 1024 * 1024 * 1024
+    assert maxmem < recovery.SCRYPT_OPENSSL_MAXMEM
+
+
+def test_memory_heavy_scrypt_automatically_reduces_parallel_workers(monkeypatch):
+    monkeypatch.setattr(
+        recovery,
+        "parse_seco",
+        lambda _data: {"n": 2**20, "r": 8, "p": 1},
+    )
+    candidates = [("a", b"x", b"y"), ("b", b"x", b"y")]
+    workers, largest = recovery.effective_worker_count_for_candidates(candidates, 4)
+    assert workers == 1
+    assert largest > 1024 * 1024 * 1024
