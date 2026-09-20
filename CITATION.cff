@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+message: "If you use this software or research, please cite it using the metadata below."
+
+title: "Exodus BIP-39 Recovery Research"
+
+authors:
+  - family-names: "Sánchez Expósito"
+    given-names: "Tomás"
+
+type: software
+version: 1.0.0
+date-released: 2026-09-20
+
+repository-code: "https://github.com/tomassanchezexposito/exodus-bip39-recovery-research"
+
+license: Apache-2.0
+
+abstract: >-
+  Reproducible research and local software for authorized recovery
+  and verification of Exodus BIP-39 wallets. The project examines
+  local encrypted wallet backups, BIP-39 mnemonic reconstruction,
+  BIP-32/BIP-44 hierarchical deterministic derivation, Ethereum
+  address verification, EIP-7702 transaction data, and the distinction
+  between deterministic representations and genuine reductions of
+  cryptographic entropy.
+
+keywords:
+  - BIP-39
+  - BIP-32
+  - BIP-44
+  - Bitcoin
+  - Ethereum
+  - Exodus
+  - wallet recovery
+  - hierarchical deterministic wallets
+  - EIP-7702
+  - cryptography
+  - cryptocurrency
