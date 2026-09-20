@@ -6,9 +6,10 @@ title: "Exodus BIP-39 Recovery Research"
 authors:
   - family-names: "Sánchez Expósito"
     given-names: "Tomás"
+    orcid: "https://orcid.org/0009-0006-3715-8516"
 
 type: software
-version: 1.0.0
+version: 0.1.0
 date-released: 2026-09-20
 
 repository-code: "https://github.com/tomassanchezexposito/exodus-bip39-recovery-research"
