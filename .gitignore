@@ -5,7 +5,9 @@ __pycache__/
 *.pyd
 .venv/
 venv/
+env/
 .env
+.env.*
 
 # IDE / OS
 .vscode/
@@ -22,6 +24,12 @@ dist/
 build/
 *.egg-info/
 
+# Local research logs
+# Root-anchored so examples/research_logs remains publishable.
+/research_logs/
+/research_*.log
+/research_*.jsonl
+
 # CRITICAL: wallet secrets / Exodus private data
 **/seed.seco
 **/storage.seco
@@ -30,6 +38,7 @@ build/
 **/exodus.wallet/**
 **/backups/wallet/**
 *PRIVATE*.zip
+*private*.zip
 exodus.zip
 *.wallet
 *.seco
@@ -50,3 +59,10 @@ contexto_maestro*.json
 # Local logs/results
 recovery_results*
 *.log
+
+# Local keys / certificates / temporary files
+*.key
+*.pem
+*.tmp
+*.bak
+~$*

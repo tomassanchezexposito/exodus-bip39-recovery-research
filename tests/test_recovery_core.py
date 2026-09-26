@@ -294,3 +294,93 @@ def test_memory_heavy_scrypt_automatically_reduces_parallel_workers(monkeypatch)
     workers, largest = recovery.effective_worker_count_for_candidates(candidates, 4)
     assert workers == 1
     assert largest > 1024 * 1024 * 1024
+
+
+def test_research_logger_creates_text_and_jsonl_and_redacts_secrets(tmp_path):
+    logger = recovery.ResearchLogger(tmp_path)
+    logger.event(
+        "synthetic_event",
+        details={
+            "mnemonic": MNEMONIC_128,
+            "passphrase": "synthetic-secret-passphrase",
+            "password": "synthetic-password",
+            "seed_sha256": "ab" * 32,
+            "safe_value": 123,
+        },
+    )
+
+    text_path = Path(logger.text_path)
+    jsonl_path = Path(logger.jsonl_path)
+    assert text_path.exists()
+    assert jsonl_path.exists()
+
+    combined = text_path.read_text(encoding="utf-8") + jsonl_path.read_text(encoding="utf-8")
+    assert MNEMONIC_128 not in combined
+    assert "synthetic-secret-passphrase" not in combined
+    assert "synthetic-password" not in combined
+    assert "<REDACTED>" in combined
+    assert "safe_value" in combined
+    assert "ab" * 32 in combined
+
+
+def test_research_logger_numbers_events_and_records_jsonl(tmp_path):
+    logger = recovery.ResearchLogger(tmp_path)
+    logger.event("first", details={"x": 1})
+    logger.event("second", details={"x": 2})
+
+    rows = [
+        json.loads(line)
+        for line in Path(logger.jsonl_path).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [row["seq"] for row in rows] == [1, 2]
+    assert [row["event"] for row in rows] == ["first", "second"]
+    assert all(row["format"] == recovery.RESEARCH_LOG_FORMAT for row in rows)
+    assert rows[0]["session_id"] == rows[1]["session_id"]
+
+
+def test_process_candidate_logs_passphrase_json_source_without_value(tmp_path, monkeypatch):
+    logger = recovery.ResearchLogger(tmp_path)
+    secret_pp = "synthetic-export-passphrase-value"
+    candidate = (
+        "backup/exodus.wallet/seed.seco",
+        b"synthetic-seed-container",
+        json.dumps({"passphrase": secret_pp}).encode("utf-8"),
+    )
+    stored_seed = Mnemonic.to_seed(MNEMONIC_128, passphrase="")
+
+    monkeypatch.setattr(
+        recovery,
+        "decrypt_seed_seco",
+        lambda _seed, _pp, **_kwargs: b"synthetic-plaintext",
+    )
+    monkeypatch.setattr(
+        recovery,
+        "unpack_exodus_seed_payload",
+        lambda _plain: stored_seed + ENTROPY_128,
+    )
+    monkeypatch.setattr(recovery, "verify_mnemonic_seed", lambda _m, _s: True)
+    monkeypatch.setattr(
+        recovery,
+        "_derive_addresses_cached",
+        lambda _s, _p, _c, _l, **_kwargs: ((recovery.DEFAULT_ETH_PATH, ETH_RE),),
+    )
+
+    result = recovery.process_candidate(
+        candidate,
+        ETH_RE,
+        [recovery.DEFAULT_ETH_PATH],
+        12,
+        {},
+        recovery.threading.Lock(),
+        logger,
+    )
+    assert result["status"] == "match"
+    assert result["credential_source"].endswith("passphrase.json")
+
+    content = Path(logger.jsonl_path).read_text(encoding="utf-8")
+    assert secret_pp not in content
+    assert "paired passphrase.json from backup/export" in content
+    assert "operator_wallet_password_prompted" in content
+    assert '"operator_wallet_password_prompted": false' in content
+    assert recovery._sha256_hex(secret_pp.encode("utf-8")) in content

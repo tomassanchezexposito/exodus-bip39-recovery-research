@@ -12,6 +12,7 @@ Mejoras principales de esta versión:
 - Descifrado paralelo con ThreadPoolExecutor y límite conservador de workers.
 - Corrección del límite implícito de memoria de OpenSSL en hashlib.scrypt para SECO con N > 2^14.
 - Barra de progreso real y registro incremental.
+- Registro forense automático en .log + .jsonl con cada etapa, origen y huellas SHA-256.
 - Caché de derivaciones por hash de seed para backups duplicados.
 - Múltiples rutas Ethereum BIP-44 y rutas personalizadas.
 - Escaneo CSV completo por defecto y modo rápido opcional con early-exit.
@@ -35,10 +36,15 @@ import hashlib
 import hmac
 import json
 import os
+import platform
 import queue
 import re
 import struct
+import sys
 import threading
+import time
+import traceback
+import uuid
 import zipfile
 import zlib
 from collections import Counter
@@ -94,6 +100,8 @@ VALID_BIP39_WORD_COUNTS = {12, 15, 18, 21, 24}
 DEFAULT_ETH_PATH = "m/44'/60'/0'/0/0"
 MAX_DERIVATION_PATHS = 500
 EXPORT_FORMAT = "exodus-bip39-recovery-encrypted-v1"
+APP_VERSION = "0.3.0-research-log"
+RESEARCH_LOG_FORMAT = "exodus-bip39-research-log-v1"
 
 # Python delega hashlib.scrypt en OpenSSL. Cuando maxmem=0/omitido, OpenSSL
 # aplica un límite implícito cercano a 32 MiB en muchas versiones. Eso hace
@@ -103,6 +111,130 @@ SCRYPT_OPENSSL_MAXMEM = 2_147_483_646
 SCRYPT_MIN_MAXMEM = 64 * 1024 * 1024
 SCRYPT_ABSOLUTE_SAFETY_LIMIT = 1536 * 1024 * 1024
 SCRYPT_PARALLEL_MEMORY_BUDGET = 1536 * 1024 * 1024
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _sha256_hex(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _sha256_file(path: str | os.PathLike[str], chunk_size: int = 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        while True:
+            chunk = fh.read(chunk_size)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _passphrase_label_for_seed_label(seed_label: str) -> str:
+    normalized = (seed_label or "").replace("\\", "/")
+    if "/" in normalized:
+        return normalized.rsplit("/", 1)[0] + "/passphrase.json"
+    return "passphrase.json"
+
+
+def _looks_base64_text(value: str) -> bool:
+    text = (value or "").strip()
+    if len(text) < 4 or len(text) % 4 != 0:
+        return False
+    return re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", text) is not None
+
+
+class ResearchLogger:
+    """Registro forense/reproducible en texto + JSONL, sin secretos en claro.
+
+    El registro se vacía a disco en cada evento para conservar evidencia incluso
+    si el proceso termina de forma inesperada. Nunca debe recibir la frase BIP-39,
+    la passphrase, claves privadas, seeds o entropía en claro; para correlación se
+    emplean únicamente huellas SHA-256.
+    """
+
+    def __init__(self, output_dir: str | os.PathLike[str]):
+        self.output_dir = Path(output_dir).expanduser().resolve()
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.session_id = f"{stamp}_{uuid.uuid4().hex[:8]}"
+        self.text_path = self.output_dir / f"research_{self.session_id}.log"
+        self.jsonl_path = self.output_dir / f"research_{self.session_id}.jsonl"
+        self._lock = threading.Lock()
+        self._seq = 0
+        self._started = time.perf_counter()
+
+    @staticmethod
+    def _sanitize(value):
+        if isinstance(value, dict):
+            out = {}
+            for key, item in value.items():
+                key_s = str(key)
+                # Cinturón de seguridad: nunca escribir secretos directos aunque
+                # una llamada futura al logger los pase por error.
+                if key_s.lower() in {
+                    "mnemonic",
+                    "passphrase",
+                    "password",
+                    "private_key",
+                    "private_key_hex",
+                    "stored_seed",
+                    "seed_bytes",
+                    "entropy",
+                    "entropy_bytes",
+                    "kdf_key",
+                    "blob_key",
+                }:
+                    out[key_s] = "<REDACTED>"
+                else:
+                    out[key_s] = ResearchLogger._sanitize(item)
+            return out
+        if isinstance(value, (list, tuple)):
+            return [ResearchLogger._sanitize(v) for v in value]
+        if isinstance(value, bytes):
+            return {"bytes": len(value), "sha256": _sha256_hex(value)}
+        return value
+
+    def event(
+        self,
+        event: str,
+        *,
+        details: dict | None = None,
+        candidate: str | None = None,
+        level: str = "INFO",
+    ) -> dict:
+        safe_details = self._sanitize(details or {})
+        with self._lock:
+            self._seq += 1
+            record = {
+                "format": RESEARCH_LOG_FORMAT,
+                "session_id": self.session_id,
+                "seq": self._seq,
+                "utc": _utc_now_iso(),
+                "elapsed_ms": round((time.perf_counter() - self._started) * 1000, 3),
+                "level": level,
+                "thread": threading.current_thread().name,
+                "candidate": candidate,
+                "event": event,
+                "details": safe_details,
+            }
+            json_line = json.dumps(record, ensure_ascii=False, sort_keys=True)
+            with self.jsonl_path.open("a", encoding="utf-8", newline="\n") as fh:
+                fh.write(json_line + "\n")
+                fh.flush()
+            details_text = json.dumps(safe_details, ensure_ascii=False, sort_keys=True)
+            with self.text_path.open("a", encoding="utf-8", newline="\n") as fh:
+                fh.write(
+                    f"[{record['seq']:06d}] {record['utc']} {level:<5} "
+                    f"{event} candidate={candidate or '-'} {details_text}\n"
+                )
+                fh.flush()
+            return record
+
+    def paths(self) -> tuple[str, str]:
+        return str(self.text_path), str(self.jsonl_path)
 
 
 def estimate_scrypt_memory_bytes(n: int, r: int, p: int) -> int:
@@ -402,14 +534,62 @@ def parse_seco(file_bytes: bytes):
     }
 
 
-def decrypt_seed_seco(seed_seco: bytes, passphrase_text: str) -> bytes:
+def decrypt_seed_seco(
+    seed_seco: bytes,
+    passphrase_text: str,
+    *,
+    research_logger: ResearchLogger | None = None,
+    candidate_label: str | None = None,
+) -> bytes:
     info = parse_seco(seed_seco)
+
+    if research_logger:
+        research_logger.event(
+            "seco_parse_ok",
+            candidate=candidate_label,
+            details={
+                "container_bytes": len(seed_seco),
+                "container_sha256": _sha256_hex(seed_seco),
+                "cipher": "aes-256-gcm",
+                "checksum_valid": True,
+                "scrypt_n": info["n"],
+                "scrypt_r": info["r"],
+                "scrypt_p": info["p"],
+                "scrypt_estimated_memory_bytes": estimate_scrypt_memory_bytes(
+                    info["n"], info["r"], info["p"]
+                ),
+                "scrypt_maxmem_bytes": scrypt_maxmem_for_params(
+                    info["n"], info["r"], info["p"]
+                ),
+                "encrypted_blob_bytes": len(info["blob"]),
+            },
+        )
 
     # Exodus guarda la passphrase de sistema como texto Base64 dentro del JSON.
     # El secure-container recibe la CADENA UTF-8, no los bytes resultantes
-    # de decodificar Base64.
+    # de decodificar Base64. Esta passphrase procede del passphrase.json
+    # emparejado dentro del backup/export; NO es una contraseña introducida
+    # manualmente en esta aplicación.
     passphrase_bytes = passphrase_text.encode("utf-8")
 
+    if research_logger:
+        research_logger.event(
+            "scrypt_start",
+            candidate=candidate_label,
+            details={
+                "credential_source": "paired passphrase.json from backup/export",
+                "operator_wallet_password_prompted": False,
+                "passphrase_length_chars": len(passphrase_text),
+                "passphrase_sha256": _sha256_hex(passphrase_bytes),
+                "passphrase_looks_base64": _looks_base64_text(passphrase_text),
+                "n": info["n"],
+                "r": info["r"],
+                "p": info["p"],
+                "dklen": 32,
+            },
+        )
+
+    t0 = time.perf_counter()
     kdf_key = scrypt_derive(
         passphrase_bytes,
         salt=info["salt"],
@@ -418,18 +598,52 @@ def decrypt_seed_seco(seed_seco: bytes, passphrase_text: str) -> bytes:
         p=info["p"],
         dklen=32,
     )
+    if research_logger:
+        research_logger.event(
+            "scrypt_ok",
+            candidate=candidate_label,
+            details={
+                "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
+                "derived_key_bytes": len(kdf_key),
+                "derived_key_redacted": True,
+            },
+        )
 
+    t1 = time.perf_counter()
     blob_key = AESGCM(kdf_key).decrypt(
         info["bk_iv"],
         info["bk_ciphertext"] + info["bk_tag"],
         None,
     )
+    if research_logger:
+        research_logger.event(
+            "aes_gcm_blob_key_ok",
+            candidate=candidate_label,
+            details={
+                "elapsed_ms": round((time.perf_counter() - t1) * 1000, 3),
+                "blob_key_bytes": len(blob_key),
+                "blob_key_redacted": True,
+                "authentication_tag_verified": True,
+            },
+        )
 
+    t2 = time.perf_counter()
     plaintext = AESGCM(blob_key).decrypt(
         info["blob_iv"],
         info["blob"] + info["blob_tag"],
         None,
     )
+    if research_logger:
+        research_logger.event(
+            "aes_gcm_payload_ok",
+            candidate=candidate_label,
+            details={
+                "elapsed_ms": round((time.perf_counter() - t2) * 1000, 3),
+                "plaintext_bytes": len(plaintext),
+                "plaintext_sha256": _sha256_hex(plaintext),
+                "authentication_tag_verified": True,
+            },
+        )
     return plaintext
 
 
@@ -532,15 +746,60 @@ def _derive_addresses_cached(
     paths: list[str],
     cache: dict[bytes, tuple[tuple[str, str], ...]],
     lock: threading.Lock,
+    *,
+    research_logger: ResearchLogger | None = None,
+    candidate_label: str | None = None,
 ) -> tuple[tuple[str, str], ...]:
     """Caché por SHA-256(seed); no conserva el seed como clave."""
     key = hashlib.sha256(stored_seed).digest()
+    key_hex = key.hex()
     with lock:
         cached = cache.get(key)
     if cached is not None:
+        if research_logger:
+            research_logger.event(
+                "derivation_cache_hit",
+                candidate=candidate_label,
+                details={
+                    "seed_sha256": key_hex,
+                    "paths_reused": len(cached),
+                },
+            )
+            for path, addr in cached:
+                research_logger.event(
+                    "ethereum_path_reused",
+                    candidate=candidate_label,
+                    details={"path": path, "derived_address": addr},
+                )
         return cached
 
-    derived = tuple((path, derive_eth_path(stored_seed, path)[1]) for path in paths)
+    if research_logger:
+        research_logger.event(
+            "derivation_cache_miss",
+            candidate=candidate_label,
+            details={"seed_sha256": key_hex, "paths_to_derive": len(paths)},
+        )
+
+    derived_items: list[tuple[str, str]] = []
+    for ordinal, path in enumerate(paths, start=1):
+        t0 = time.perf_counter()
+        _priv, addr = derive_eth_path(stored_seed, path)
+        derived_items.append((path, addr))
+        if research_logger:
+            research_logger.event(
+                "ethereum_path_derived",
+                candidate=candidate_label,
+                details={
+                    "ordinal": ordinal,
+                    "total_paths": len(paths),
+                    "path": path,
+                    "derived_address": addr,
+                    "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
+                    "private_key_redacted": True,
+                },
+            )
+
+    derived = tuple(derived_items)
     with lock:
         return cache.setdefault(key, derived)
 
@@ -552,23 +811,112 @@ def process_candidate(
     expected_words: int | None,
     derivation_cache: dict[bytes, tuple[tuple[str, str], ...]],
     cache_lock: threading.Lock,
+    research_logger: ResearchLogger | None = None,
 ):
     label, seed_bytes, pp_bytes = candidate
+    pp_label = _passphrase_label_for_seed_label(label)
+
+    if research_logger:
+        research_logger.event(
+            "candidate_start",
+            candidate=label,
+            details={
+                "seed_path": label,
+                "passphrase_path": pp_label,
+                "seed_file_bytes": len(seed_bytes),
+                "seed_file_sha256": _sha256_hex(seed_bytes),
+                "passphrase_json_bytes": len(pp_bytes),
+                "passphrase_json_sha256": _sha256_hex(pp_bytes),
+                "target_address": target,
+                "expected_words": expected_words,
+                "paths_configured": len(paths),
+            },
+        )
 
     pp = read_passphrase_json(pp_bytes)
-    plain = decrypt_seed_seco(seed_bytes, pp)
-    raw = unpack_exodus_seed_payload(plain)
+    if research_logger:
+        research_logger.event(
+            "passphrase_json_read",
+            candidate=label,
+            details={
+                "passphrase_path": pp_label,
+                "field_present": True,
+                "credential_source": "paired passphrase.json from backup/export",
+                "operator_wallet_password_prompted": False,
+                "passphrase_value_redacted": True,
+                "passphrase_length_chars": len(pp),
+                "passphrase_sha256": _sha256_hex(pp.encode("utf-8")),
+                "passphrase_looks_base64": _looks_base64_text(pp),
+            },
+        )
 
+    plain = decrypt_seed_seco(
+        seed_bytes,
+        pp,
+        research_logger=research_logger,
+        candidate_label=label,
+    )
+
+    if research_logger:
+        gzip_len = struct.unpack(">L", plain[:4])[0] if len(plain) >= 4 else None
+        research_logger.event(
+            "seed_payload_unpack_start",
+            candidate=label,
+            details={
+                "decrypted_payload_bytes": len(plain),
+                "declared_gzip_bytes": gzip_len,
+            },
+        )
+
+    raw = unpack_exodus_seed_payload(plain)
     stored_seed = raw[:64]
     entropy = raw[64:]
+
+    if research_logger:
+        research_logger.event(
+            "seed_payload_unpack_ok",
+            candidate=label,
+            details={
+                "decompressed_bytes": len(raw),
+                "stored_bip39_seed_bytes": len(stored_seed),
+                "stored_bip39_seed_sha256": _sha256_hex(stored_seed),
+                "entropy_length_bytes": len(entropy),
+                "entropy_bits": len(entropy) * 8,
+                "entropy_sha256": _sha256_hex(entropy),
+                "secret_material_redacted": True,
+            },
+        )
+
     mnemonic = entropy_to_mnemonic(entropy)
     words = mnemonic.split()
     word_count = len(words)
+
+    if research_logger:
+        research_logger.event(
+            "bip39_mnemonic_reconstructed",
+            candidate=label,
+            details={
+                "word_count": word_count,
+                "mnemonic_sha256": _sha256_hex(mnemonic.encode("utf-8")),
+                "mnemonic_redacted": True,
+                "bip39_language": "english",
+            },
+        )
 
     if word_count not in VALID_BIP39_WORD_COUNTS:
         raise ValueError(f"Número de palabras BIP-39 inesperado: {word_count}")
 
     if expected_words is not None and word_count != expected_words:
+        if research_logger:
+            research_logger.event(
+                "candidate_filtered_by_word_count",
+                candidate=label,
+                details={
+                    "actual_words": word_count,
+                    "expected_words": expected_words,
+                    "entropy_bits": len(entropy) * 8,
+                },
+            )
         return {
             "label": label,
             "status": "word-count-skip",
@@ -578,6 +926,16 @@ def process_candidate(
 
     # Mejora de corrección: no se acepta una frase si no reproduce el seed almacenado.
     bip39_ok = verify_mnemonic_seed(mnemonic, stored_seed)
+    if research_logger:
+        research_logger.event(
+            "bip39_seed_verification",
+            candidate=label,
+            details={
+                "verified": bip39_ok,
+                "stored_seed_sha256": _sha256_hex(stored_seed),
+                "mnemonic_redacted": True,
+            },
+        )
     if not bip39_ok:
         return {
             "label": label,
@@ -591,13 +949,40 @@ def process_candidate(
         paths,
         derivation_cache,
         cache_lock,
+        research_logger=research_logger,
+        candidate_label=label,
     )
     matching_paths = [
         path for path, addr in derived
         if hmac.compare_digest(addr.lower(), target)
     ]
 
+    if research_logger:
+        research_logger.event(
+            "target_comparison_complete",
+            candidate=label,
+            details={
+                "target_address": target,
+                "tested_paths": len(derived),
+                "matching_paths": matching_paths,
+                "match": bool(matching_paths),
+            },
+        )
+
     if matching_paths:
+        if research_logger:
+            research_logger.event(
+                "candidate_match",
+                candidate=label,
+                details={
+                    "seed_source": label,
+                    "credential_source": pp_label,
+                    "target_address": target,
+                    "matching_paths": matching_paths,
+                    "word_count": word_count,
+                    "mnemonic_redacted": True,
+                },
+            )
         return {
             "label": label,
             "status": "match",
@@ -607,8 +992,19 @@ def process_candidate(
             "address": target,
             "paths": matching_paths,
             "bip39_ok": True,
+            "credential_source": pp_label,
         }
 
+    if research_logger:
+        research_logger.event(
+            "candidate_no_match",
+            candidate=label,
+            details={
+                "word_count": word_count,
+                "entropy_bits": len(entropy) * 8,
+                "tested_paths": len(derived),
+            },
+        )
     return {
         "label": label,
         "status": "no-match",
@@ -680,8 +1076,8 @@ def decrypt_export_payload(envelope: dict, password: str) -> dict:
 class RecoveryApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Exodus BIP39 Recovery Tool — LOCAL — 24 palabras")
-        self.geometry("1120x900")
+        self.title("Exodus BIP39 Research Recovery Tool — LOCAL — v0.3.0")
+        self.geometry("1120x960")
         self.minsize(930, 720)
 
         self.source_var = tk.StringVar()
@@ -693,8 +1089,10 @@ class RecoveryApp(tk.Tk):
         self.address_index_max_var = tk.IntVar(value=9)
         self.custom_paths_var = tk.StringVar(value="")
         self.csv_quick_var = tk.BooleanVar(value=False)
+        self.log_dir_var = tk.StringVar(value=str(Path.cwd() / "research_logs"))
 
         self.matches: list[dict] = []
+        self._last_research_log_paths: tuple[str, str] | None = None
         self._last_target = ""
         self._last_paths: list[str] = []
         self._event_queue: queue.Queue = queue.Queue()
@@ -717,7 +1115,8 @@ class RecoveryApp(tk.Tk):
             self,
             text=(
                 "Modo por defecto: 24 palabras (256 bits). Todo se procesa localmente. "
-                "No subas seed.seco, passphrase.json ni frases BIP-39 a servicios web."
+                "Se genera un log forense .log + .jsonl. Frase, passphrase, seed y claves privadas "
+                "NO se escriben en el log; se registran huellas SHA-256 y metadatos."
             ),
             wraplength=1040,
         )
@@ -756,6 +1155,18 @@ class RecoveryApp(tk.Tk):
             frm,
             text="Recomendado: 1–2. scrypt puede consumir bastante RAM.",
         ).grid(row=2, column=4, columnspan=2, sticky="w", **pad)
+
+        ttk.Label(frm, text="Carpeta de logs de investigación:").grid(row=3, column=0, sticky="w", **pad)
+        ttk.Entry(frm, textvariable=self.log_dir_var, width=78).grid(
+            row=3, column=1, columnspan=3, sticky="ew", **pad
+        )
+        ttk.Button(frm, text="Seleccionar carpeta", command=self.pick_log_folder).grid(
+            row=3, column=4, **pad
+        )
+        ttk.Label(
+            frm,
+            text="Genera automáticamente un .log legible y un .jsonl estructurado.",
+        ).grid(row=3, column=5, sticky="w", **pad)
 
         frm.columnconfigure(1, weight=1)
         frm.columnconfigure(2, weight=1)
@@ -796,6 +1207,14 @@ class RecoveryApp(tk.Tk):
             state="disabled",
         )
         self.export_btn.pack(side="left")
+
+        self.open_logs_btn = ttk.Button(
+            controls,
+            text="Abrir carpeta de logs",
+            command=self.open_log_folder,
+            state="disabled",
+        )
+        self.open_logs_btn.pack(side="left", padx=8)
 
         ttk.Label(controls, textvariable=self.status_var).pack(side="right")
 
@@ -840,6 +1259,8 @@ class RecoveryApp(tk.Tk):
         self.log.delete("1.0", "end")
         self.progress.configure(maximum=1, value=0)
         self.export_btn.configure(state="disabled")
+        self._last_research_log_paths = None
+        self.open_logs_btn.configure(state="disabled")
         self.set_result(
             "La frase solo aparecerá aquí si: (1) el seed BIP-39 reconstruido es exacto y "
             "(2) una ruta Ethereum probada coincide con la dirección objetivo.\n"
@@ -858,6 +1279,28 @@ class RecoveryApp(tk.Tk):
         p = filedialog.askdirectory(title="Selecciona la carpeta raíz de Exodus/backups")
         if p:
             self.source_var.set(p)
+
+    def pick_log_folder(self):
+        p = filedialog.askdirectory(title="Selecciona dónde guardar los logs de investigación")
+        if p:
+            self.log_dir_var.set(p)
+
+    def open_log_folder(self):
+        if not self._last_research_log_paths:
+            messagebox.showinfo("Logs", "Todavía no se ha generado ningún log de investigación.")
+            return
+        folder = str(Path(self._last_research_log_paths[0]).parent)
+        try:
+            if os.name == "nt":
+                os.startfile(folder)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                import subprocess
+                subprocess.Popen(["open", folder])
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", folder])
+        except Exception as exc:
+            messagebox.showerror("Logs", f"No pude abrir la carpeta:\n{folder}\n\n{exc}")
 
     def pick_csv(self):
         p = filedialog.askopenfilename(
@@ -935,6 +1378,7 @@ class RecoveryApp(tk.Tk):
                 index_max,
                 self.custom_paths_var.get(),
             )
+            log_dir = self.log_dir_var.get().strip() or str(Path.cwd() / "research_logs")
         except Exception as exc:
             messagebox.showerror("Configuración", str(exc))
             return
@@ -945,13 +1389,15 @@ class RecoveryApp(tk.Tk):
         self.log.delete("1.0", "end")
         self.progress.configure(maximum=1, value=0)
         self.export_btn.configure(state="disabled")
+        self._last_research_log_paths = None
+        self.open_logs_btn.configure(state="disabled")
         self.set_result("Analizando...\n")
         self.run_btn.configure(state="disabled")
         self.status_var.set("Analizando...")
 
         self._worker_thread = threading.Thread(
             target=self._recovery_coordinator,
-            args=(source, target, expected_words, workers, paths),
+            args=(source, target, expected_words, workers, paths, log_dir),
             daemon=True,
         )
         self._worker_thread.start()
@@ -963,8 +1409,36 @@ class RecoveryApp(tk.Tk):
         expected_words: int | None,
         workers: int,
         paths: list[str],
+        log_dir: str,
     ):
+        research_logger: ResearchLogger | None = None
         try:
+            research_logger = ResearchLogger(log_dir)
+            text_log, jsonl_log = research_logger.paths()
+            self._event_queue.put(("research_log_paths", text_log, jsonl_log))
+            research_logger.event(
+                "session_start",
+                details={
+                    "app_version": APP_VERSION,
+                    "python_version": sys.version.split()[0],
+                    "platform": platform.platform(),
+                    "source": str(Path(source).resolve()),
+                    "source_kind": "zip" if os.path.isfile(source) else "folder",
+                    "target_address": target,
+                    "expected_words": expected_words,
+                    "requested_workers": workers,
+                    "ethereum_paths": paths,
+                    "log_secrets_in_clear": False,
+                    "important": (
+                        "The application does not prompt for the Exodus UI password. "
+                        "For each candidate it reads the paired passphrase.json from the export."
+                    ),
+                },
+            )
+            research_logger.event(
+                "source_scan_start",
+                details={"source": str(Path(source).resolve())},
+            )
             if os.path.isfile(source) and source.lower().endswith(".zip"):
                 candidates = list(zip_candidates(source))
             elif os.path.isdir(source):
@@ -972,17 +1446,63 @@ class RecoveryApp(tk.Tk):
             else:
                 raise ValueError("La fuente debe ser un ZIP o una carpeta.")
 
+            if os.path.isfile(source):
+                stat = os.stat(source)
+                research_logger.event(
+                    "source_file_fingerprint",
+                    details={
+                        "path": str(Path(source).resolve()),
+                        "bytes": stat.st_size,
+                        "mtime_ns": stat.st_mtime_ns,
+                        "sha256": _sha256_file(source),
+                    },
+                )
+
             if not candidates:
                 raise ValueError(
                     "No encontré pares seed.seco + passphrase.json dentro de la fuente."
                 )
 
             total = len(candidates)
+            research_logger.event(
+                "source_scan_complete",
+                details={"candidate_count": total},
+            )
+            for label, seed_bytes, pp_bytes in candidates:
+                research_logger.event(
+                    "candidate_discovered",
+                    candidate=label,
+                    details={
+                        "seed_path": label,
+                        "passphrase_path": _passphrase_label_for_seed_label(label),
+                        "seed_file_bytes": len(seed_bytes),
+                        "seed_file_sha256": _sha256_hex(seed_bytes),
+                        "passphrase_json_bytes": len(pp_bytes),
+                        "passphrase_json_sha256": _sha256_hex(pp_bytes),
+                    },
+                )
+
             effective_workers, largest_scrypt_maxmem = effective_worker_count_for_candidates(
                 candidates, workers
             )
+            research_logger.event(
+                "execution_plan",
+                details={
+                    "candidate_count": total,
+                    "requested_workers": workers,
+                    "effective_workers": effective_workers,
+                    "largest_scrypt_maxmem_bytes": largest_scrypt_maxmem,
+                    "paths_per_seed": len(paths),
+                },
+            )
             self._event_queue.put(("setup", total))
             self._event_queue.put(("log", f"Backups candidatos encontrados: {total}"))
+            self._event_queue.put((
+                "log",
+                "LOG FORENSE: cada paso se guarda en .log + .jsonl; secretos en claro = NO",
+            ))
+            self._event_queue.put(("log", f"Log texto: {text_log}"))
+            self._event_queue.put(("log", f"Log JSONL: {jsonl_log}"))
             self._event_queue.put(("log", f"Dirección objetivo: {target}"))
             self._event_queue.put(("log", f"Rutas Ethereum a probar por seed: {len(paths)}"))
             self._event_queue.put(("log", "  " + "\n  ".join(paths[:20])))
@@ -1022,6 +1542,7 @@ class RecoveryApp(tk.Tk):
                         expected_words,
                         derivation_cache,
                         cache_lock,
+                        research_logger,
                     ): candidate[0]
                     for candidate in candidates
                 }
@@ -1065,6 +1586,16 @@ class RecoveryApp(tk.Tk):
                             ))
                     except Exception as exc:
                         errors += 1
+                        research_logger.event(
+                            "candidate_error",
+                            candidate=label,
+                            level="ERROR",
+                            details={
+                                "exception_type": type(exc).__name__,
+                                "message": str(exc),
+                                "traceback": traceback.format_exc(),
+                            },
+                        )
                         self._event_queue.put((
                             "log",
                             f"[{completed:03d}/{total:03d}] {label} | ERROR: {exc}",
@@ -1072,6 +1603,20 @@ class RecoveryApp(tk.Tk):
                     finally:
                         self._event_queue.put(("progress", completed, total))
 
+            research_logger.event(
+                "session_complete",
+                details={
+                    "candidate_count": total,
+                    "matches": len(matches),
+                    "errors": errors,
+                    "word_count_skips": skipped_words,
+                    "bip39_seed_mismatches": seed_mismatches,
+                    "unique_seed_derivations_cached": len(derivation_cache),
+                    "matched_candidates": [m["label"] for m in matches],
+                    "matched_paths": sorted({p for m in matches for p in m.get("paths", [])}),
+                    "target_address": target,
+                },
+            )
             self._event_queue.put(("log", ""))
             self._event_queue.put((
                 "log",
@@ -1084,6 +1629,16 @@ class RecoveryApp(tk.Tk):
             self._event_queue.put(("done", matches, target))
 
         except Exception as exc:
+            if research_logger is not None:
+                research_logger.event(
+                    "session_fatal_error",
+                    level="ERROR",
+                    details={
+                        "exception_type": type(exc).__name__,
+                        "message": str(exc),
+                        "traceback": traceback.format_exc(),
+                    },
+                )
             self._event_queue.put(("fatal", str(exc)))
 
     def _poll_events(self):
@@ -1101,6 +1656,9 @@ class RecoveryApp(tk.Tk):
                     completed, total = event[1], event[2]
                     self.progress.configure(maximum=max(1, total), value=completed)
                     self.status_var.set(f"Analizando... {completed}/{total}")
+                elif kind == "research_log_paths":
+                    self._last_research_log_paths = (event[1], event[2])
+                    self.open_logs_btn.configure(state="normal")
                 elif kind == "done":
                     self._finish_success(event[1], event[2])
                 elif kind == "fatal":
@@ -1133,10 +1691,12 @@ class RecoveryApp(tk.Tk):
         for m in matches:
             bucket = unique.setdefault(
                 m["mnemonic"],
-                {"labels": [], "paths": set(), "words": m["words"]},
+                {"labels": [], "paths": set(), "credentials": set(), "words": m["words"]},
             )
             bucket["labels"].append(m["label"])
             bucket["paths"].update(m["paths"])
+            if m.get("credential_source"):
+                bucket["credentials"].add(m["credential_source"])
 
         blocks = []
         for num, (mnemonic, info) in enumerate(unique.items(), start=1):
@@ -1148,7 +1708,10 @@ class RecoveryApp(tk.Tk):
                 f"Palabras: {len(words)}\n"
                 f"Ruta(s) coincidente(s):\n  - " + "\n  - ".join(sorted(info["paths"])) + "\n"
                 f"Copias coincidentes: {len(info['labels'])}\n"
-                f"Backup(s):\n  - " + "\n  - ".join(info["labels"]) + "\n\n"
+                f"Backup(s):\n  - " + "\n  - ".join(info["labels"]) + "\n"
+                f"Credencial usada para descifrar seed.seco:\n  - "
+                + "\n  - ".join(sorted(info["credentials"]) or ["passphrase.json emparejado"])
+                + "\nContraseña de Exodus introducida manualmente en esta app: NO\n\n"
                 f"{numbered}\n"
             )
 

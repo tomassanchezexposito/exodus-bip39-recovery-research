@@ -3,9 +3,9 @@ setlocal
 cd /d "%~dp0"
 
 echo ============================================================
-echo  Exodus BIP39 Recovery Tool - instalacion local
-echo  Version mejorada - soporte 24 palabras
-ECHO ============================================================
+echo  Exodus BIP39 Research Recovery Tool - v0.3.0
+echo  Registro forense automatico: .log + .jsonl
+echo ============================================================
 echo.
 
 where py >nul 2>nul
@@ -28,6 +28,7 @@ if errorlevel 1 (
 
 echo.
 echo [2/2] Iniciando la aplicacion...
+echo Los logs se guardaran en la carpeta configurada en la interfaz.
 py src\exodus_recovery_tool.py
 if errorlevel 1 (
     echo.
